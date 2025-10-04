@@ -40,6 +40,10 @@ class QTable:
             return state, policy
         return [f(idx) for idx in range(len(self.table))]
 
+    def best_q_value(self, state):
+        idx = self.state2idx(state)
+        return np.max(self.table[idx])
+
     def _id2policy(self, action_idx):
         p = [0, 0, 0, 0, 0] if self.enable_keep else [0, 0, 0, 0]
         p[action_idx] = 1

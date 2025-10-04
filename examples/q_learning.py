@@ -1,4 +1,11 @@
-"""SARSA 算法 """
+"""Q-learning 算法实现
+
+Q-learning 是一种异策略（off-policy）算法。
+它的更新规则不依赖于下一个实际执行的动作，而是直接使用下一状态能带来的最大化收益来更新 Q 值。
+
+Q-learning 更新规则:
+Q(s, a) <- Q(s, a) + alpha * (reward + gamma * max_{a'} Q(s', a') - Q(s, a))
+"""
 from gridworldpy import GridWorldEnv, QTable
 
 
@@ -11,8 +18,7 @@ rewards_def = [
     ((0, 4), -1)
 ]
 
-disable_def = []
-# disable_def = [(2, 3), (2, 4)]
+disable_def = [(2, 2), (3, 2), (4, 2), (2, 3), (2, 4)]
 
 # 2. 超参数设置
 gamma = 0.8          # 折扣因子
@@ -28,49 +34,51 @@ env = GridWorldEnv(grid_size=grid_size, enable_keep=False, start_state=(0, 0), t
                    max_steps=500, show_step_num=True,
                    )
 
+
 q_table = QTable(grid_size, enable_keep=env.enable_keep)
 
 
-# 5. SARSA 算法主循环
+# 4. Q-learning 算法主循环
 for episode in range(num_episodes):
     print(f"第 {episode + 1} 回合， epsilon: {epsilon:.4}")
     state = env.reset()
     env.set_rewards(rewards_def)
     env.set_disable_states(disable_def)
 
-    # 根据初始状态选择第一个动作
-    action = q_table.epsilon_greedy_action(state, epsilon)
-
     while True:
+        # 根据当前状态选择动作（ε-贪婪策略）
+        action = q_table.epsilon_greedy_action(state, epsilon)
+
         # 执行动作，获取新状态和奖励
         next_state, reward, done, _, info = env.step(action)
         reward = reward if reward is not None else 0.0
-        # 在新状态下，根据策略选择下一个动作
-        next_action = q_table.epsilon_greedy_action(next_state, epsilon) if not done else None
-        next_q = q_table.get(next_state, next_action) if not done else 0.0
 
-        # SARSA 更新规则
+        # Q-learning 更新规则
         current_q = q_table.get(state, action)
-        td_target = reward + gamma * next_q
+        # 核心步骤：使用下一状态的最大Q值，而不是下一个实际动作的Q值
+        next_max_q = q_table.best_q_value(next_state) if not done else 0.0
+        td_target = reward + gamma * next_max_q
         td_error = td_target - current_q
         q_table.update(state, action, current_q + alpha * td_error)
 
-        # 如果到达终止状态，则不需要更新状态和动作，直接结束
+        # 如果到达终止状态，则结束当前回合
         if done:
             break
 
-        # 更新状态和动作为下一次迭代做准备
+        # 更新状态
         state = next_state
-        action = next_action
 
         optimal_policy = q_table.best_policy()
         env.set_policy(optimal_policy)
         env.render(q_table.best_state_values())
 
-
     # 更新 ε
     epsilon = max(min_epsilon, epsilon * decay_rate)
 
+
+optimal_policy = q_table.best_policy()
+env.set_policy(optimal_policy)
+env.render(q_table.best_state_values())
 
 input("按回车键退出...")
 env.close()

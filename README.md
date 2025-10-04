@@ -164,25 +164,15 @@ GridWorldEnv(
 #### 动作空间
 
 - 当`enable_keep=True`时
-
     - 0: 停留在当前位置
-
     - 1: 向上移动
-
     - 2: 向下移动  
-
     - 3: 向左移动
-
     - 4: 向右移动
-
 - 当`enable_keep=False`时
-
     - 0: 向上移动
-
     - 1: 向下移动  
-
     - 2: 向左移动
-
     - 3: 向右移动
 
 ## 🎨 可视化说明
@@ -211,6 +201,7 @@ GridWorldEnv(
 - `policy_evaluation.py`：蒙特卡罗法策略评估
 - `value_iteration.py`：价值迭代寻找最优策略
 - `sarsa.py`：SARSA算法实现
+- `q_learning.py`：Q-Learning算法实现
 
 ## 📄 许可
 

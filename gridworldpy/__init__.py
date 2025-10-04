@@ -9,7 +9,7 @@ from .gridworld import GridWorldEnv
 from .utils import policy_to_transition_matrix, matrix_to_rewards
 from .q_table import QTable
 
-__version__ = "0.1.2"
+__version__ = "0.2.0"
 __author__ = "LIC"
 __email__ = "liuchen.lic@gmail.com"
 
