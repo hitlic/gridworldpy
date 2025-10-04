@@ -60,7 +60,8 @@ from gridworldpy import GridWorldEnv
 env = GridWorldEnv(
     grid_size=(4, 4),
     keyboard_control=True,      # 启用键盘控制
-    terminal_condition=(3, 3),  # 目标位置为(3,3)
+    enable_keep= True,          # 启用停留动作
+    target_state=(3, 3),        # 目标位置为(3,3)
     cell_size=150,              # 每个格子150像素
     circle_radius=40,           # 奖励圆圈半径40像素
 )
@@ -81,7 +82,7 @@ policy = [
 env.set_policy(policy)
 
 # 禁用某些状态（创建障碍物）
-env.disable_states([(1, 2), (2, 1)])
+env.set_disable_states([(1, 2), (2, 1)])
 
 # 渲染环境
 env.render()
@@ -135,34 +136,54 @@ for step in range(10):
 ```python
 GridWorldEnv(
     grid_size=(5, 5),           # 网格大小 (行, 列)
+    enable_keep=False,          # 是否允许停留当前状态
+    start_state=(0, 0),         # 初始状态
     render_mode="human",        # 渲染模式
     keyboard_control=True,      # 是否启用键盘控制
-    terminal_condition=None,    # 终止条件
+    max_steps=100000,           # 最大步数
     cell_size=130,              # 每个格子的像素大小
     circle_radius=35,           # 奖励圆圈半径
     font_size=16,               # 字体大小
     max_arrow_length=50,        # 策略箭头最大长度
+    color_alpha=0.0,            # 取值[0, 1)，显示颜色对数值的灵敏度
     show_cell_pos=True,         # 在每个单元上显示位置坐标
-    color_alpha=0.0             # 控制色彩敏感度
+    show_step_num=False         # 是否显示步数
 )
 ```
 
 #### 主要方法
 
-- `step(action)`: 执行动作，返回(observation, reward, done, info)
+- `step(action)`: 执行动作，返回 `(next_state, reward, done,  valid_action, info)`
+- `reset()`：重置环境，返回初始状态
 - `render(state_values=None, policy_config=None, reward_config=None)`: 渲染环境
 - `set_rewards(reward_config)`: 设置奖励配置
 - `set_policy(policy_config)`: 设置策略配置
-- `disable_states(disabled_poses)`: 禁用指定状态
+- `set_disable_states(disabled_poses)`: 禁用指定状态
 - `close()`: 关闭环境
 
 #### 动作空间
 
-- 0: 停留在当前位置
-- 1: 向上移动
-- 2: 向下移动  
-- 3: 向左移动
-- 4: 向右移动
+- 当`enable_keep=True`时
+
+    - 0: 停留在当前位置
+
+    - 1: 向上移动
+
+    - 2: 向下移动  
+
+    - 3: 向左移动
+
+    - 4: 向右移动
+
+- 当`enable_keep=False`时
+
+    - 0: 向上移动
+
+    - 1: 向下移动  
+
+    - 2: 向左移动
+
+    - 3: 向右移动
 
 ## 🎨 可视化说明
 
@@ -189,6 +210,7 @@ GridWorldEnv(
 - `basic_usage.py`：基本使用示例
 - `policy_evaluation.py`：蒙特卡罗法策略评估
 - `value_iteration.py`：价值迭代寻找最优策略
+- `sarsa.py`：SARSA算法实现
 
 ## 📄 许可
 

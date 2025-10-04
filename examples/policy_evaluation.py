@@ -6,7 +6,7 @@ from gridworldpy import GridWorldEnv
 
 # --- 算法核心参数 ---
 gamma = 0.8                     # 奖励折扣因子
-is_first_visit = False          # True表示首次访问蒙特卡罗法，False表示每次访问蒙特卡罗法
+is_first_visit = True          # True表示首次访问蒙特卡罗法，False表示每次访问蒙特卡罗法
 num_episodes = 500              # 模拟的回合数
 max_steps_per_episode = 2000    # 每个回合的最大步数
 
@@ -15,10 +15,11 @@ max_steps_per_episode = 2000    # 每个回合的最大步数
 # 3x3的网格环境
 env = GridWorldEnv(
     grid_size=(3, 3),
+    enable_keep=True,
     start_state=(0, 0),
     cell_size=170,
     keyboard_control=False,
-    terminal_condition=max_steps_per_episode,
+    max_steps=max_steps_per_episode,
     show_cell_pos=True)
 
 
@@ -68,8 +69,8 @@ for episode_num in range(num_episodes):
     while not done:
         # env.render()
         action = env.rand_action()
-        state, reward, done, _, info = env.step(action)
-        episode_history.append((info['prev_state'], reward))
+        next_state, reward, done, _, info = env.step(action)
+        episode_history.append((info['state'], reward))
 
     # --- 2. 蒙特卡罗法计算状态价值 ---
     G = 0

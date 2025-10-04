@@ -83,19 +83,41 @@ def foreground_color(bg_rgb):
     return best_color
 
 
-def policy_to_transition_matrix(policy, grid_size=(3, 3)):
+def policy_to_transition_matrix(policy, grid_size, enable_keep=None):
     """
     将格子世界的策略定义转换为状态转移概率矩阵 P。
+    当 enable_keep 为 True 时，policy_probobility_list 为 [p_keep, p_up, p_down, p_left, p_right]
+    当 enable_keep 为 False 时，policy_probobility_list 为 [p_up, p_down, p_left, p_right]
+    当 enable_keep 为 None 时，将根据概率列表长度自动推断（4 -> False, 5 -> True）
+
     Args:
         policy (list): 策略定义列表。
-            - 列表 [((row, col), [p_keep, p_up, p_down, p_left, p_right]), ...]
-            - 字典 {(row, col): [p_keep, p_up, p_down, p_left, p_right], ... }
+            - 列表 [((row, col)，policy_probobility_list), ...]
+            - 字典 {(row, col): policy_probobility_list, ... }
         grid_size (tuple): 格子世界的尺寸 (rows, cols)。
+    enable_keep (bool | None): 是否启用 keep 动作；None 表示根据概率列长度自动推断。
     Returns:
         numpy.ndarray: 一个 (N*M) x (N*M) 的状态转移矩阵 P，其中 P[i, j] 是从状态 i 转移到状态 j 的概率。
     """
     if isinstance(policy, dict):
         policy = list(policy.items())
+
+    if len(policy) == 0:
+        raise ValueError("policy cannot be empty")
+
+    sample_probabilities = policy[0][1]
+    if enable_keep is None:
+        if len(sample_probabilities) == 5:
+            enable_keep = True
+        elif len(sample_probabilities) == 4:
+            enable_keep = False
+        else:
+            raise ValueError("Cannot infer enable_keep from probability list length; expected 4 or 5 values.")
+
+    expected_len = 5 if enable_keep else 4
+    for (_, _), probabilities in policy:
+        if len(probabilities) != expected_len:
+            raise ValueError(f"Each probability list must contain {expected_len} values when enable_keep is {enable_keep}.")
     rows, cols = grid_size
     num_states = rows * cols
 
@@ -106,6 +128,11 @@ def policy_to_transition_matrix(policy, grid_size=(3, 3)):
     # 顺序必须与策略中的概率列表严格对应: [keep, up, down, left, right]
     action_effects = [
         (0, 0),   # keep
+        (-1, 0),  # up
+        (1, 0),   # down
+        (0, -1),  # left
+        (0, 1)    # right
+    ] if enable_keep else [
         (-1, 0),  # up
         (1, 0),   # down
         (0, -1),  # left
@@ -132,3 +159,19 @@ def policy_to_transition_matrix(policy, grid_size=(3, 3)):
             transition_matrix[from_idx, to_idx] += prob
 
     return transition_matrix
+
+
+def matrix_to_rewards(reward_mat):
+    """
+    将奖励矩阵转换为奖励定义列表。
+    Args:
+        reward_mat (numpy.ndarray): 奖励矩阵，形状为 (rows, cols)。
+    Returns:
+        list: 奖励定义列表，格式为 [((row, col), reward), ...]。
+    """
+    rewards = []
+    rows, cols = reward_mat.shape
+    for r in range(rows):
+        for c in range(cols):
+            rewards.append(((r, c), reward_mat[r, c]))
+    return rewards

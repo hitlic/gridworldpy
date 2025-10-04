@@ -10,53 +10,47 @@ class GridWorldEnv:
     使用tkinter进行可视化
     """
 
-    def __init__(self, grid_size=(5, 5), start_state=(0, 0), render_mode="human", keyboard_control=False, terminal_condition=None,
-                 cell_size=135, circle_radius=35, font_size=16, max_arrow_length=30, show_cell_pos=False, color_alpha=0.0):
+    def __init__(self, grid_size=(5, 5), enable_keep=False, start_state=(0, 0), target_state=None,
+                 render_mode="human", keyboard_control=False,  max_steps=100000000,
+                 cell_size=135, circle_radius=35, font_size=16, max_arrow_length=30, color_alpha=0.0,
+                 show_cell_pos=False, show_step_num=False):
         """
         Args:
             grid_size:          (rows, cols) 网格大小
+            enable_keep:        是否允许停留在当前状态，True表示5状态动作，False表示4状态动作
             start_state:        (x, y) 初始状态位置
+            target_state:       目标位置坐标 (x, y)，如果为 None 则表示无目标位置
             render_mode:        渲染模式，"human"表示可视化
             keyboard_control:   是否启用键盘控制
-            terminal_condition: 终止条件
-                - None:  目标位置为右下角
-                - int:   最大步数限制
-                - tuple: 目标位置坐标 (x, y)
+            max_steps:          最大步数限制
             cell_size:          每个单元格的像素尺寸
             circle_radius:      显示奖励/价值的圆半径
             font_size:          圆内文本字号
             max_arrow_length:   策略箭头最大长度
-            show_cell_pos:      是否在单元格内显示坐标
             color_alpha:        取值[0, 1)，用于控制颜色敏感区域，值越大对大值越敏感，值越小对小值越敏感，取0.5时为敏感度为线性
+            show_cell_pos:      是否在单元格内显示坐标
+            show_step_num:      是否显示步数
         """
         self.grid_size = grid_size
+        self.enable_keep = enable_keep
         self.render_mode = render_mode
         self.keyboard_control = keyboard_control
         self.show_cell_pos = show_cell_pos
         assert 0 <= color_alpha < 1, "color_alpha 取值为[0, 1)，值越大对大值越敏感，值越小对小值越敏感，取0.5时为敏感度为线性！"
         self.color_alpha = color_alpha
+        self.show_step_num = show_step_num
+
+        self.action_num = 5 if self.enable_keep else 4
 
         # 设置终止条件
-        if terminal_condition is None:
-            # 默认：目标位置为右下角
-            self.terminal_condition = (grid_size[0]-1, grid_size[1]-1)
-            self.goal_pos = self.terminal_condition
-            self.max_steps = None
-        elif isinstance(terminal_condition, int):
-            # 整数：最大步数限制
-            self.terminal_condition = terminal_condition
-            self.goal_pos = None
-            self.max_steps = terminal_condition
-        elif isinstance(terminal_condition, tuple):
-            # 元组：目标位置坐标
-            self.terminal_condition = terminal_condition
-            self.goal_pos = terminal_condition
-            self.max_steps = None
-        else:
-            raise ValueError("terminal_condition must be None, int (max_steps), or tuple (goal_position)")
+        self.goal_pos = target_state
+        self.max_steps = max_steps
 
         # 动作空间：停留(0), 上(1), 下(2), 左(3), 右(4)
-        self.action_space = [0, 1, 2, 3, 4]
+        if self.enable_keep:
+            self.action_space = [0, 1, 2, 3, 4]
+        else:
+            self.action_space = [0, 1, 2, 3]
 
         # 初始状态
         self.start_state = start_state
@@ -85,14 +79,11 @@ class GridWorldEnv:
         # 当前动作
         self.action = None
 
-        # 记录上一步动作
-        self.previous_action = None
+        # 下一状态
+        self.next_state = None
 
         # 当前状态
         self.state = self.start_state
-
-        # 记录上一步状态
-        self.previous_state = None
 
         # 运行总步数
         self.step_count = 0
@@ -109,11 +100,8 @@ class GridWorldEnv:
         # 键盘控制相关
         self.space_pressed = False
 
-        # step 方法是否曾被运行
-        self._do_step = False
-
         self.is_closed = False  # 重置关闭标志
-        return self._get_obs()
+        return self.start_state
 
     def _init_gui(self):
         """初始化tkinter GUI"""
@@ -158,12 +146,12 @@ class GridWorldEnv:
     def rand_action(self, by_policy=True):
         """根据当前策略随机选择一个动作，或者直接随机选择一个动作"""
         if not by_policy:
-            return np.random.choice(self.action_space)
+            return int(np.random.choice(self.action_space))
 
         if self.policy is None:
             raise ValueError("Policy is not set.")
         probs = self.policy[self.state]
-        return np.random.choice(self.action_space, p=probs)
+        return int(np.random.choice(self.action_space, p=probs))
 
     def get_current_policy(self,):
         """获取当前策略"""
@@ -187,29 +175,33 @@ class GridWorldEnv:
                 self.rewards[x, y] = reward
 
     def set_policy(self, policy_config):
-        """设置或更新策略
+        """设置或更新策略。
+        当 enable_keep=True 时，动作空间为5个动作 [keep, up, down, left, right]（停留, 上, 下, 左, 右）；
+        当 enable_keep=False 时，动作空间为4个动作 [up, down, left, right]（上, 下, 左, 右）。
+
         Args:
             policy_config:
                 - 'random': 随机设置每个cell的动作概率
-                - list: [((x,y),[keep,up,down,left,right]), ...]  指定坐标和概率的列表
-                - dict: {(x,y): [keep,up,down,left,right], ...} 指定坐标和概率的字典
-        """
+                - list: [((x,y), action_probability_list), ...]  指定坐标和概率的列表
+                - dict: {(x,y): action_probability_list, ...} 指定坐标和概率的字典
+                """
+        action_num = 5 if self.enable_keep else 4
         # 若策略未初始化，则使用均匀分布
         if self.policy is None:
-            self.policy = np.ones((self.grid_size[0], self.grid_size[1], 5)) * 0.2
+            self.policy = np.ones((self.grid_size[0], self.grid_size[1], action_num)) * 1/action_num
 
         if policy_config == 'random':
             # 为每个cell随机生成概率分布
             for i in range(self.grid_size[0]):
                 for j in range(self.grid_size[1]):
-                    probs = np.random.uniform(0, 1, 5)
+                    probs = np.random.uniform(0, 1, action_num)
                     probs = probs / np.sum(probs)  # 归一化
                     self.policy[i, j] = probs
         elif isinstance(policy_config, (list, dict)):
             # 兼容list和dict两种输入格式
             policy_config = policy_config if isinstance(policy_config, list) else policy_config.items()
             for (x, y), probs in policy_config:
-                assert len(probs) == 5, "Policy must have 5 values: [keep, up, down, left, right]"
+                assert len(probs) == action_num, f"Policy must have {action_num} values when `eable_keep` is {self.enable_keep}"
                 probs = np.array(probs)
                 if np.sum(probs) > 0:
                     self.policy[x, y] = probs / np.sum(probs)  # 归一化
@@ -230,7 +222,7 @@ class GridWorldEnv:
                 policy_list.append(((i, j), self.policy[i, j].tolist()))
         return policy_list
 
-    def disable_states(self, disabled_poses):
+    def set_disable_states(self, disabled_poses):
         """禁用指定坐标的状态
         Args:
             disabled_poses: [(x,y), ...] 要禁用的坐标列表
@@ -245,79 +237,109 @@ class GridWorldEnv:
             self._adjust_policy_for_disabled_states()
 
     def _adjust_policy_for_disabled_states(self):
-        """调整策略，将转移到禁用状态或边界外的概率添加到停留(keep)动作的概率上"""
+        """调整策略：
+        当enable_keep=True时，将转移到禁用状态或边界外的概率添加到停留(keep)动作的概率上；
+        当enable_keep=False时，将转移到禁用状态或边界外的概率添加到上、下、左、右动作的概率上。
+        """
         for i in range(self.grid_size[0]):
             for j in range(self.grid_size[1]):
                 if (i, j) in self.disabled_states:
-                    self.policy[i, j] = np.zeros(5)  # 禁用状态无动作
+                    self.policy[i, j] = np.zeros(5 if self.enable_keep else 4)  # 禁用状态无动作
                     continue
 
-                # 获取当前策略 [keep, up, down, left, right]
+                # 获取当前策略 [keep, up, down, left, right] 或 [up, down, left, right]
                 current_policy = self.policy[i, j].copy()
                 blocked_prob = 0.0
+                blocked_indices = []
 
                 # 检查上方动作 (index 1)
                 next_x = i - 1
                 if next_x < 0 or (next_x, j) in self.disabled_states:
-                    blocked_prob += current_policy[1]
-                    current_policy[1] = 0
+                    p_id = 1 if self.enable_keep else 0
+                    blocked_prob += current_policy[p_id]
+                    current_policy[p_id] = 0
+                    blocked_indices.append(p_id)
 
                 # 检查下方动作 (index 2)
                 next_x = i + 1
                 if next_x >= self.grid_size[0] or (next_x, j) in self.disabled_states:
-                    blocked_prob += current_policy[2]
-                    current_policy[2] = 0
+                    p_id = 2 if self.enable_keep else 1
+                    blocked_prob += current_policy[p_id]
+                    current_policy[p_id] = 0
+                    blocked_indices.append(p_id)
 
                 # 检查左方动作 (index 3)
                 next_y = j - 1
                 if next_y < 0 or (i, next_y) in self.disabled_states:
-                    blocked_prob += current_policy[3]
-                    current_policy[3] = 0
+                    p_id = 3 if self.enable_keep else 2
+                    blocked_prob += current_policy[p_id]
+                    current_policy[p_id] = 0
+                    blocked_indices.append(p_id)
 
                 # 检查右方动作 (index 4)
                 next_y = j + 1
                 if next_y >= self.grid_size[1] or (i, next_y) in self.disabled_states:
-                    blocked_prob += current_policy[4]
-                    current_policy[4] = 0
+                    p_id = 4 if self.enable_keep else 3
+                    blocked_prob += current_policy[p_id]
+                    current_policy[p_id] = 0
+                    blocked_indices.append(p_id)
 
-                # 将所有被阻挡的概率加到keep动作上 (index 0)
-                current_policy[0] += blocked_prob
+                if self.enable_keep and blocked_prob > 0:
+                    # 将所有被阻挡的概率加到keep动作上 (index 0)
+                    current_policy[0] += blocked_prob
+                else:
+                    # 将所有被阻挡的概率均匀分配到上、下、左、右动作上
+                    move_indices = [0, 1, 2, 3]
+                    available_move_indices = [idx for idx in move_indices if idx not in blocked_indices]
+                    if not available_move_indices:
+                        available_move_indices = move_indices
+                    if available_move_indices:
+                        distribute_prob = blocked_prob / len(available_move_indices)
+                        for idx in available_move_indices:
+                            current_policy[idx] += distribute_prob
+
+                total_prob = current_policy.sum()
+                if total_prob <= 0:
+                    # 所有动作被阻塞或概率耗尽，回退到均匀分布
+                    current_policy = np.ones_like(current_policy) / len(current_policy)
+                else:
+                    current_policy = current_policy / total_prob
 
                 self.policy[i, j] = current_policy
-
-    def _get_obs(self):
-        return self.state
 
     def step(self, action):
         """
         Args:
-            action: 动作索引 0-4
-        Returns: (observation, reward, terminated, info)
+            action: 动作索引 0-4 (如果 enable_keep=True) 或 0-3 (如果 enable_keep=False)
+        Returns: (next_state, reward, terminated, effective_action,info)
         """
         if action not in self.action_space:
             raise ValueError(f"Invalid action {action}. Must be one of {self.action_space}.")
 
-        self._do_step = True
+
+        # enable_keep=False时将动作索引调整为 [1, 2, 3, 4] 范围，以重复利用 action 处理逻辑
+        _action = action if self.enable_keep else action + 1
+
 
         effective_action = False  # 标记动作是否有效
 
         x, y = self.state
         new_x, new_y = x, y
 
-        if action == 0:   # 停留
+        if _action == 0:   # 停留
             pass  # 保持当前位置
-        elif action == 1:   # 上
+        elif _action == 1:   # 上
             new_x = max(x-1, 0)
-        elif action == 2:  # 下
+        elif _action == 2:  # 下
             new_x = min(x+1, self.grid_size[0]-1)
-        elif action == 3:  # 左
+        elif _action == 3:  # 左
             new_y = max(y-1, 0)
-        elif action == 4:  # 右
+        elif _action == 4:  # 右
             new_y = min(y+1, self.grid_size[1]-1)
 
         # 如果新位置被禁用则为无效动作，返回0奖励，并且不改变任何信息
         if (new_x, new_y) in self.disabled_states:
-            return self._get_obs(), 0.0, False, effective_action, {}
+            return self.next_state, 0.0, False, effective_action, {}
         else:
             effective_action = True
 
@@ -326,50 +348,35 @@ class GridWorldEnv:
         # 保存返回信息的字典
         info = {}
 
-        # 非初始步的情况下，更新上一步动作和状态
-        self.previous_action = self.action
-        self.previous_state = self.state
-        self.is_init = False
-
-        info['prev_state'] = self.previous_state
-        info['prev_action'] = self.previous_action
-
-        # 离开上一状态后得到的奖励
-        if self.previous_state is not None:
-            received_reward = self.rewards[self.previous_state] if self.rewards is not None else None
-        else:
-            received_reward = 0.0  # 初始状态没有离开奖励
-
-        # 更新当前状态和动作
-        self.state = (new_x, new_y)
+        # 更新动作和状态
         self.action = action
+        self.next_state = (new_x, new_y)
+
+        # 离开当前状态得到的奖励
+        received_reward = self.rewards[self.state] if self.rewards is not None else None
 
         # 判断是否终止
         done = False
-        info['goal_reward'] = None
         if self.goal_pos is not None:
             # 基于目标位置的终止
             done = self.state == self.goal_pos
             if done:
                 info['exit_reason'] = 'done'
-                info['goal_reward'] = self.rewards[self.state] if self.rewards is not None else None
         elif self.max_steps is not None:
             # 基于最大步数的终止
             done = self.step_count >= self.max_steps
             if done:
                 info['exit_reason'] = 'max_steps'
-                info['goal_reward'] = 0.0
         else:
             info['exit_reason'] = None
 
         # 当前状态的奖励
-        info['reward'] = received_reward
-        info['state'] = self.state
         info['step_count'] = self.step_count
-        info['action'] = self.action
+        info['state'] = self.state
+        self.state = self.next_state
 
-        # observation, reward, terminated, effective_action, info
-        return self._get_obs(), received_reward, done, effective_action, info
+        # next_state, reward, terminated, effective_action, info
+        return self.next_state, received_reward, done, effective_action, info
 
     def render(self, state_values=None, policy_config=None, reward_config=None):
         """
@@ -455,7 +462,7 @@ class GridWorldEnv:
         self._draw_agent()
 
         # 更新信息标签
-        if self._do_step:
+        if self.show_step_num:
             self.info_label.config(text=f"Steps: {self.step_count}")
 
     def _draw_cell(self, i, j):
@@ -527,13 +534,16 @@ class GridWorldEnv:
 
     def _draw_one_arrow(self, x0, y0, x1, y1, arrow_color, outline_color):
         """绘制带轮廓的箭头"""
-        self.canvas.create_line(x0, y0, x1, y1, fill=outline_color, width=5, arrow=tk.LAST)
-        self.canvas.create_line(x0, y0, x1, y1, fill=arrow_color, width=3, arrow=tk.LAST)
+        arrow_width = max(1, int(self.circle_radius/10))
+        self.canvas.create_line(x0, y0, x1, y1, fill=outline_color, width=arrow_width+2, arrow=tk.LAST)
+        self.canvas.create_line(x0, y0, x1, y1, fill=arrow_color, width=arrow_width, arrow=tk.LAST)
 
     def _draw_policy_arrows(self, i, j, center_x, center_y):
         """绘制策略箭头"""
         if self.policy is None:
             return
+        if self.goal_pos is not None and (i, j) == self.goal_pos:
+            return  # 目标位置不显示箭头
 
         probs = self.policy[i, j]
         max_arrow_length = self.max_arrow_length
@@ -542,7 +552,7 @@ class GridWorldEnv:
         outline_color = "black"
 
         # 显示keep概率（在圆圈中心附近显示一个小点）
-        if probs[0] > min_prob_threshold:
+        if probs[0] > min_prob_threshold and self.enable_keep:
             keep_radius = int(self.max_arrow_length/3 * probs[0])  # 根据概率调整点的大小
             if keep_radius > 1:
                 self.canvas.create_oval(
@@ -552,32 +562,36 @@ class GridWorldEnv:
                 )
 
         # 上箭头 (index 1)
-        if probs[1] > min_prob_threshold:
-            length = int(max_arrow_length * probs[1])
+        p_id = 1 if self.enable_keep else 0  # policy index for 'up'
+        if probs[p_id] > min_prob_threshold:
+            length = int(max_arrow_length * probs[p_id])
             if length > 3:
                 start_y = center_y - self.circle_radius
                 end_y = start_y - length
                 self._draw_one_arrow(center_x, start_y, center_x, end_y, arrow_color, outline_color)
 
         # 下箭头 (index 2)
-        if probs[2] > min_prob_threshold:
-            length = int(max_arrow_length * probs[2])
+        p_id = 2 if self.enable_keep else 1  # policy index for 'down'
+        if probs[p_id] > min_prob_threshold:
+            length = int(max_arrow_length * probs[p_id])
             if length > 3:
                 start_y = center_y + self.circle_radius
                 end_y = start_y + length
                 self._draw_one_arrow(center_x, start_y, center_x, end_y, arrow_color, outline_color)
 
         # 左箭头 (index 3)
-        if probs[3] > min_prob_threshold:
-            length = int(max_arrow_length * probs[3])
+        p_id = 3 if self.enable_keep else 2  # policy index for 'left'
+        if probs[p_id] > min_prob_threshold:
+            length = int(max_arrow_length * probs[p_id])
             if length > 3:
                 start_x = center_x - self.circle_radius
                 end_x = start_x - length
                 self._draw_one_arrow(start_x, center_y, end_x, center_y, arrow_color, outline_color)
 
         # 右箭头 (index 4)
-        if probs[4] > min_prob_threshold:
-            length = int(max_arrow_length * probs[4])
+        p_id = 4 if self.enable_keep else 3  # policy index for 'right'
+        if probs[p_id] > min_prob_threshold:
+            length = int(max_arrow_length * probs[p_id])
             if length > 3:
                 start_x = center_x + self.circle_radius
                 end_x = start_x + length
@@ -606,8 +620,10 @@ class GridWorldEnv:
 
         if state_value is not None:
             # 显示两行：奖励和状态价值
-            reward_text = '' if reward_val is None else f"R: {reward_val: .2f}"
-            value_text = f"V: {state_value: .2f}"
+            
+            num_width = max(len(f"{0 if reward_val is None else reward_val:.2f}"), len(f"{state_value:.2f}"))
+            reward_text = '' if reward_val is None else f"R: {reward_val:{num_width}.2f}"
+            value_text = f"V: {state_value:{num_width}.2f}"
 
             # 第一行（奖励）
             self.canvas.create_text(
@@ -638,6 +654,8 @@ class GridWorldEnv:
 
     def _draw_agent(self):
         """绘制智能体"""
+        if self.state is None:
+            return
         agent_center_x = self.state[1] * self.cell_size + self.cell_size // 2
         agent_center_y = self.state[0] * self.cell_size + self.cell_size // 2
 

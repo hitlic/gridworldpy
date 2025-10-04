@@ -1,11 +1,11 @@
 from setuptools import setup, find_packages
-
+from gridworldpy import __version__
 with open("README.md", "r", encoding="utf-8") as fh:
     long_description = fh.read()
 
 setup(
     name="gridworldpy",
-    version="0.1.1",
+    version=__version__,
     author="LIC",
     author_email="liuchen.lic@gmail.com",
     description="A flexible and interactive grid world environment for reinforcement learning",
