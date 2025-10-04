@@ -4,7 +4,11 @@
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-一个灵活且交互式的网格世界环境，专为强化学习实验和教育目的设计。
+一个灵活且交互式的网格世界环境，专为强化学习实验和教学目的设计。
+
+<center>
+    <img src="./img.png" width="50%"/>
+</center>
 
 ## ✨ 特性
 
