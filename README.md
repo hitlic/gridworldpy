@@ -6,9 +6,10 @@
 
 一个灵活且交互式的网格世界环境，专为强化学习实验和教学目的设计。
 
-<div style="text-align:center;">
-    <img src="./img.png" width="50%"/>
+<div align="center">
+  <img src="./img.png" width="50%">
 </div>
+
 
 ## ✨ 特性
 
